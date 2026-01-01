@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Collect Cubes</title>
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  background: black;
+  overflow: hidden;
+}
+canvas { display: block; }
+#dot {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin:-3px;
+  background:white;
+  border-radius:50%;
+  z-index:10;
+}
+</style>
+</head>
+<body>
+
+<div id="dot"></div>
+<canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+function resize(){
+  canvas.width = innerWidth;
+  canvas.height = innerHeight;
+}
+resize();
+window.onresize = resize;
+
+let cubes = [];
+let yaw = 0;
+let score = 0;
+
+// --- SPAWN SETTINGS ---
+const SPAWN_RADIUS = 120; // medium circle
+function spawnCube() {
+  const angle = Math.random() * Math.PI * 2;
+  const radius = Math.random() * SPAWN_RADIUS;
+  cubes.push({
+    x: Math.cos(angle) * radius,
+    y: Math.sin(angle) * radius
+  });
+}
+setInterval(spawnCube, 1000);
+
+// --- GYRO (optional) ---
+window.addEventListener("deviceorientation", e => {
+  if (e.alpha !== null) yaw = e.alpha * Math.PI / 180;
+});
+
+// Fallback auto-rotate
+setInterval(() => yaw += 0.002, 16);
+
+// --- DRAW FUNCTION ---
+function drawEye(offset) {
+  ctx.save();
+  ctx.translate(offset, 0);
+
+  for (let i = cubes.length - 1; i >= 0; i--) {
+    let c = cubes[i];
+
+    // Rotate cubes around player
+    let rx = c.x * Math.cos(yaw) - c.y * Math.sin(yaw);
+    let ry = c.x * Math.sin(yaw) + c.y * Math.cos(yaw);
+
+    // Screen position
+    let sx = canvas.width / 4 + rx;
+    let sy = canvas.height / 2 + ry;
+
+    // Draw cube
+    ctx.fillStyle = "cyan";
+    ctx.fillRect(sx-20, sy-20, 40, 40);
+
+    // Gaze detection
+    if (Math.abs(rx) < 25 && Math.abs(ry) < 25) {
+      cubes.splice(i,1);
+      score++;
+    }
+  }
+
+  ctx.restore();
+}
+
+// --- MAIN LOOP ---
+function loop() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  drawEye(0); // left eye
+  drawEye(canvas.width/2); // right eye
+
+  // Divider
+  ctx.fillStyle = "gray";
+  ctx.fillRect(canvas.width/2-1, 0, 2, canvas.height);
+
+  // Score
+  ctx.fillStyle = "white";
+  ctx.font = "20px sans-serif";
+  ctx.fillText("Score: " + score, 10, 20);
+
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>
