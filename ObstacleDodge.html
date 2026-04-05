@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Obstacle Dodge VR</title>
+<style>
+  body { margin:0; overflow:hidden; background:#000; }
+</style>
+</head>
+<body>
+<script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
+
+<script>
+// --- Scene and Renderer ---
+let scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x000000, 0, 200);
+
+let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+
+let renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+window.addEventListener('resize', ()=>{
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// --- Player ---
+let playerX = 0, playerY = 0;
+let score = 0;
+
+// --- Walls ---
+let walls = [];
+const wallDepth = 0.5, wallWidth = 4, wallHeight = 4;
+let spawnZ = -20;
+const wallGap = 15;
+const wallSpeed = 0.3;
+const eyeSeparation = 0.03;
+
+// Wall material
+const wallMat = new THREE.MeshBasicMaterial({color:0x0ff});
+
+// Spawn walls
+function spawnWall(){
+    const holeSizeX = 1.0, holeSizeY = 1.0;
+    const holeX = (Math.random()*(wallWidth-holeSizeX)) - wallWidth/2 + holeSizeX/2;
+    const holeY = (Math.random()*(wallHeight-holeSizeY)) - wallHeight/2 + holeSizeY/2;
+
+    const boxes = [];
+    // Left
+    let lw = new THREE.Mesh(new THREE.BoxGeometry((wallWidth/2)+holeX, wallHeight, wallDepth), wallMat);
+    lw.position.set(-(wallWidth/2)+(lw.geometry.parameters.width/2),0,spawnZ);
+    boxes.push(lw);
+    // Right
+    let rw = new THREE.Mesh(new THREE.BoxGeometry((wallWidth/2)-holeX, wallHeight, wallDepth), wallMat);
+    rw.position.set(holeX+(rw.geometry.parameters.width/2),0,spawnZ);
+    boxes.push(rw);
+    // Top
+    let th = new THREE.Mesh(new THREE.BoxGeometry(holeSizeX, (wallHeight/2)-holeY, wallDepth), wallMat);
+    th.position.set(holeX, holeY+(th.geometry.parameters.height/2), spawnZ);
+    boxes.push(th);
+    // Bottom
+    let bh = new THREE.Mesh(new THREE.BoxGeometry(holeSizeX, (wallHeight/2)+holeY, wallDepth), wallMat);
+    bh.position.set(holeX, -(wallHeight/2)+(bh.geometry.parameters.height/2), spawnZ);
+    boxes.push(bh);
+
+    boxes.forEach(b=>scene.add(b));
+    walls.push(boxes);
+
+    spawnZ -= wallGap;
+}
+
+// Initial walls
+for(let i=0;i<5;i++) spawnWall();
+
+// --- Score in 3D ---
+const scoreGeom = new THREE.TextGeometry("Score: 0", {
+    font: new THREE.FontLoader().parse({"glyphs":{},"familyName":"Arial","ascender":1,"descender":-0.2,"underlinePosition":0,"underlineThickness":0.1,"boundingBox":{"yMin":-0.2,"yMax":1.0,"xMin":0,"xMax":1},"resolution":1,"original_font_information":{}}),
+    size:0.5, height:0.01
+});
+const scoreMat = new THREE.MeshBasicMaterial({color:0x00ff00});
+const scoreMesh = new THREE.Mesh(scoreGeom, scoreMat);
+scoreMesh.position.set(-1,2,-3);
+scene.add(scoreMesh);
+
+// --- Device Orientation ---
+window.addEventListener('deviceorientation', (e)=>{
+    playerX = THREE.MathUtils.clamp(e.gamma/45, -1, 1)*2;
+    playerY = THREE.MathUtils.clamp(-e.beta/45, -1, 1)*2;
+}, true);
+
+// --- Main Loop ---
+function loop(){
+    requestAnimationFrame(loop);
+
+    // Move camera forward
+    camera.position.z += wallSpeed;
+    score += wallSpeed;
+
+    // Update score text
+    scene.remove(scoreMesh);
+    const newScoreGeom = new THREE.TextGeometry("Score: "+Math.floor(score), {size:0.5, height:0.01});
+    const newScoreMesh = new THREE.Mesh(newScoreGeom, scoreMat);
+    newScoreMesh.position.set(-1,2,camera.position.z-3);
+    scene.add(newScoreMesh);
+
+    camera.position.x = playerX;
+    camera.position.y = playerY;
+
+    // Move walls
+    walls.forEach(ws=>{
+        ws.forEach(b=>b.position.z += wallSpeed);
+    });
+
+    // Spawn new walls
+    if(camera.position.z - spawnZ > -100) spawnWall();
+
+    // Collision detection
+    for(let wallSet of walls){
+        for(let box of wallSet){
+            const boxPos = box.position.clone();
+            const boxSize = new THREE.Vector3();
+            box.geometry.computeBoundingBox();
+            box.geometry.boundingBox.getSize(boxSize);
+            const dz = Math.abs(camera.position.z - boxPos.z);
+            if(Math.abs(camera.position.x - boxPos.x) < boxSize.x/2 &&
+               Math.abs(camera.position.y - boxPos.y) < boxSize.y/2 &&
+               dz < boxSize.z/2){
+                alert('Game Over! Score: '+Math.floor(score));
+                walls.forEach(ws=>ws.forEach(b=>scene.remove(b)));
+                walls=[];
+                spawnZ = camera.position.z - 20;
+                for(let i=0;i<5;i++) spawnWall();
+                score = 0;
+                camera.position.set(0,0,0);
+                return;
+            }
+        }
+    }
+
+    // --- Manual stereo rendering ---
+    renderer.setScissorTest(true);
+
+    // Left eye
+    renderer.setScissor(0,0,window.innerWidth/2,window.innerHeight);
+    renderer.setViewport(0,0,window.innerWidth/2,window.innerHeight);
+    camera.position.x -= eyeSeparation/2;
+    renderer.render(scene,camera);
+
+    // Right eye
+    renderer.setScissor(window.innerWidth/2,0,window.innerWidth/2,window.innerHeight);
+    renderer.setViewport(window.innerWidth/2,0,window.innerWidth/2,window.innerHeight);
+    camera.position.x += eyeSeparation;
+    renderer.render(scene,camera);
+
+    // Reset camera
+    camera.position.x = playerX;
+    renderer.setScissorTest(false);
+}
+
+loop();
+</script>
+</body>
+</html>
