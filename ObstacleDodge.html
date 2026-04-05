@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Obstacle Dodge VR</title>
+<style>
+  body { margin:0; overflow:hidden; background:#000; }
+  #score { position:absolute; top:10px; left:10px; color:#0f0; font-family:sans-serif; font-size:24px; z-index:10; }
+</style>
+</head>
+<body>
+<div id="score">Score: 0</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/VRButton.js"></script>
+
+<script>
+let scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x000000, 0, 200);
+
+let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+
+let renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+document.body.appendChild(THREE.VRButton.createButton(renderer));
+
+window.addEventListener('resize', ()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Player position (forward movement handled by camera.z)
+let playerX = 0;
+let playerY = 0;
+const pathWidth = 4;
+const pathHeight = 4;
+let score = 0;
+
+// Walls
+let walls = [];
+const wallDepth = 0.5;
+const wallWidth = pathWidth;
+const wallHeight = pathHeight;
+let spawnZ = -20;
+const wallGap = 15;
+let wallSpeed = 0.3;
+
+// Wall material
+const wallMat = new THREE.MeshBasicMaterial({color:0x0ff});
+
+// Spawn a wall with a hole in X/Y
+function spawnWall(){
+  const holeSizeX = 1.0;
+  const holeSizeY = 1.0;
+  const holeX = (Math.random()*(pathWidth-holeSizeX)) - pathWidth/2 + holeSizeX/2;
+  const holeY = (Math.random()*(pathHeight-holeSizeY)) - pathHeight/2 + holeSizeY/2;
+
+  const boxes = [];
+
+  // Left
+  let lw = new THREE.Mesh(new THREE.BoxGeometry((wallWidth/2)+holeX, wallHeight, wallDepth), wallMat);
+  lw.position.set(-(wallWidth/2)+(lw.geometry.parameters.width/2),0,spawnZ);
+  boxes.push(lw);
+  // Right
+  let rw = new THREE.Mesh(new THREE.BoxGeometry((wallWidth/2)-holeX, wallHeight, wallDepth), wallMat);
+  rw.position.set(holeX+(rw.geometry.parameters.width/2),0,spawnZ);
+  boxes.push(rw);
+  // Top
+  let th = new THREE.Mesh(new THREE.BoxGeometry(holeSizeX, (wallHeight/2)-holeY, wallDepth), wallMat);
+  th.position.set(holeX, holeY+(th.geometry.parameters.height/2), spawnZ);
+  boxes.push(th);
+  // Bottom
+  let bh = new THREE.Mesh(new THREE.BoxGeometry(holeSizeX, (wallHeight/2)+holeY, wallDepth), wallMat);
+  bh.position.set(holeX, -(wallHeight/2)+(bh.geometry.parameters.height/2), spawnZ);
+  boxes.push(bh);
+
+  boxes.forEach(b=>scene.add(b));
+  walls.push(boxes);
+
+  spawnZ -= wallGap;
+}
+
+// Initial walls
+for(let i=0;i<5;i++) spawnWall();
+
+// Game loop
+function loop(){
+  renderer.setAnimationLoop(render);
+}
+
+function render(){
+  // Move camera forward automatically
+  camera.position.z += wallSpeed;
+  score += wallSpeed;
+  document.getElementById('score').innerText = 'Score: '+Math.floor(score);
+
+  // Move walls toward player
+  walls.forEach(wallSet=>{
+    wallSet.forEach(b=>{
+      b.position.z += wallSpeed;
+    });
+  });
+
+  // Spawn new wall if needed
+  if(camera.position.z - spawnZ > -100) spawnWall();
+
+  // Collision detection
+  for(let wallSet of walls){
+    for(let box of wallSet){
+      const boxPos = box.position.clone();
+      const boxSize = new THREE.Vector3();
+      box.geometry.computeBoundingBox();
+      box.geometry.boundingBox.getSize(boxSize);
+      const dz = Math.abs(camera.position.z - boxPos.z);
+      if(Math.abs(camera.position.x - boxPos.x) < boxSize.x/2 &&
+         Math.abs(camera.position.y - boxPos.y) < boxSize.y/2 &&
+         dz < boxSize.z/2){
+        alert('Game Over! Score: '+Math.floor(score));
+        walls.forEach(ws=>ws.forEach(b=>scene.remove(b)));
+        walls=[];
+        spawnZ = camera.position.z - 20;
+        for(let i=0;i<5;i++) spawnWall();
+        score = 0;
+        camera.position.set(0,0,0);
+        return;
+      }
+    }
+  }
+
+  renderer.render(scene,camera);
+}
+
+loop();
+</script>
+</body>
+</html>
