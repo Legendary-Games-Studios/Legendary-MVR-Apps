@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>MVRCoasters – Flying Saucer</title>
+
+<style>
+body { margin:0; overflow:hidden; background:#000; }
+canvas { display:block; }
+
+#permissionBtn {
+  position:absolute;
+  top:50%; left:50%;
+  transform:translate(-50%,-50%);
+  padding:20px 40px;
+  font-size:18px;
+  background:#00ff00;
+  color:#000;
+  border:none;
+  border-radius:8px;
+  z-index:10;
+}
+
+#fsBtn {
+  position:absolute;
+  top:10px;
+  right:10px;
+  z-index:10;
+  padding:10px 15px;
+  background:#00ff00;
+  border:none;
+  border-radius:6px;
+}
+</style>
+</head>
+
+<body>
+
+<button id="permissionBtn">Enable VR Sensors</button>
+<button id="fsBtn">Fullscreen</button>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
+
+<script>
+
+////////////////////////////////////////////////////
+// FULLSCREEN
+////////////////////////////////////////////////////
+function enterFullscreen() {
+    const elem = document.documentElement;
+    if (elem.requestFullscreen) elem.requestFullscreen();
+    else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+    else if (elem.msRequestFullscreen) elem.msRequestFullscreen();
+}
+
+document.getElementById("fsBtn").onclick = () => enterFullscreen();
+
+////////////////////////////////////////////////////
+// SCENE
+////////////////////////////////////////////////////
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x000000, 0, 500);
+
+const camera = new THREE.PerspectiveCamera(
+    75,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000
+);
+
+camera.position.set(0, 1.5, 5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+////////////////////////////////////////////////////
+// IMPORTANT: FIRST FRAME (fixes blank screen issues)
+////////////////////////////////////////////////////
+renderer.render(scene, camera);
+
+////////////////////////////////////////////////////
+// VR SETTINGS
+////////////////////////////////////////////////////
+const eyeSeparation = 0.05;
+
+////////////////////////////////////////////////////
+// TRACK
+////////////////////////////////////////////////////
+const trackPoints = [];
+const loops = 2;
+const pointsPerLoop = 200;
+
+for (let l = 0; l < loops; l++) {
+    for (let i = 0; i < pointsPerLoop; i++) {
+        const t = (i / pointsPerLoop) * Math.PI * 2;
+        const radius = 5 + Math.sin(t * 3 + l) * 2;
+        const height = Math.sin(t * 4 + l) * 3 + 1.5;
+
+        const x = Math.cos(t + l) * radius;
+        const y = height;
+        const z = Math.sin(t + l) * radius * 1.5 - l * pointsPerLoop * 2;
+
+        trackPoints.push(new THREE.Vector3(x, y, z));
+    }
+}
+
+trackPoints.push(trackPoints[0].clone());
+
+const trackCurve = new THREE.CatmullRomCurve3(trackPoints, true);
+
+const tube = new THREE.Mesh(
+    new THREE.TubeGeometry(trackCurve, trackPoints.length * 2, 0.3, 8, true),
+    new THREE.MeshBasicMaterial({ color: 0xff00ff })
+);
+
+scene.add(tube);
+
+////////////////////////////////////////////////////
+// ALIENS
+////////////////////////////////////////////////////
+for (let i = 0; i < trackPoints.length; i += 5) {
+    const p = trackPoints[i];
+
+    const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.6, 12, 12),
+        new THREE.MeshBasicMaterial({ color: Math.random() * 0xffffff })
+    );
+
+    mesh.position.set(
+        p.x + Math.random() * 6 - 3,
+        p.y + Math.random() * 4 - 2,
+        p.z + Math.random() * 6 - 3
+    );
+
+    scene.add(mesh);
+}
+
+////////////////////////////////////////////////////
+// RIDE
+////////////////////////////////////////////////////
+let trackIndex = 0;
+const rideSpeed = 0.5;
+
+////////////////////////////////////////////////////
+// ORIENTATION
+////////////////////////////////////////////////////
+let orientationEnabled = false;
+const deviceQuat = new THREE.Quaternion();
+const euler = new THREE.Euler();
+
+function enableOrientation() {
+
+    enterFullscreen();
+
+    const handler = (e) => {
+        const alpha = THREE.MathUtils.degToRad(e.alpha || 0);
+        const beta = THREE.MathUtils.degToRad(e.beta || 0);
+        const gamma = THREE.MathUtils.degToRad(e.gamma || 0);
+
+        euler.set(beta, alpha, -gamma, "YXZ");
+        deviceQuat.setFromEuler(euler);
+    };
+
+    if (typeof DeviceOrientationEvent.requestPermission === "function") {
+        DeviceOrientationEvent.requestPermission().then(res => {
+            if (res === "granted") {
+                window.addEventListener("deviceorientation", handler);
+                orientationEnabled = true;
+                document.getElementById("permissionBtn").style.display = "none";
+            }
+        });
+    } else {
+        window.addEventListener("deviceorientation", handler);
+        orientationEnabled = true;
+        document.getElementById("permissionBtn").style.display = "none";
+    }
+}
+
+document.getElementById("permissionBtn").onclick = enableOrientation;
+
+////////////////////////////////////////////////////
+// LOOP
+////////////////////////////////////////////////////
+function animate() {
+    requestAnimationFrame(animate);
+    render();
+}
+animate();
+
+function render() {
+
+    if (orientationEnabled) {
+
+        trackIndex += rideSpeed / 5;
+        if (trackIndex >= trackPoints.length - 1) trackIndex = 0;
+
+        const curr = trackCurve.getPoint(trackIndex / (trackPoints.length - 1));
+        const next = trackCurve.getPoint((trackIndex + 1) / (trackPoints.length - 1));
+
+        camera.position.copy(curr);
+
+        const dir = new THREE.Vector3()
+            .subVectors(next, curr)
+            .normalize();
+
+        camera.lookAt(curr.clone().add(dir));
+
+        camera.quaternion.multiply(deviceQuat);
+    }
+
+    // ---------------- SAFE STEREO RENDER ----------------
+
+    renderer.clear();
+    renderer.setScissorTest(true);
+
+    const halfW = window.innerWidth / 2;
+    const h = window.innerHeight;
+
+    const basePos = camera.position.clone();
+    const baseQuat = camera.quaternion.clone();
+
+    // LEFT EYE
+    const leftCam = camera.clone();
+    leftCam.position.copy(basePos);
+    leftCam.position.x -= eyeSeparation;
+    leftCam.quaternion.copy(baseQuat);
+
+    renderer.setViewport(0, 0, halfW, h);
+    renderer.setScissor(0, 0, halfW, h);
+    renderer.render(scene, leftCam);
+
+    // RIGHT EYE
+    const rightCam = camera.clone();
+    rightCam.position.copy(basePos);
+    rightCam.position.x += eyeSeparation;
+    rightCam.quaternion.copy(baseQuat);
+
+    renderer.setViewport(halfW, 0, halfW, h);
+    renderer.setScissor(halfW, 0, halfW, h);
+    renderer.render(scene, rightCam);
+
+    renderer.setScissorTest(false);
+}
+
+</script>
+</body>
+</html>
